@@ -1,6 +1,6 @@
 @echo off
 echo    ________________
-echo  > VLC logo remover
+echo  > ffmpeg logo remover
 echo.
 setlocal enabledelayedexpansion
 
