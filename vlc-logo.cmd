@@ -1,11 +1,11 @@
 @echo off
-echo    _______________
-echo  > VLC remove logo
+echo    ________________
+echo  > VLC logo remover
 echo.
 setlocal enabledelayedexpansion
 
 :: ============================================================
-:: CONFIGURAZIONE VALORI PREDEFINITI
+:: DEFAULT CONFIGURATION
 :: ============================================================
 set "X1=862" & set "Y1=626" & set "W1=227" & set "H1=31" & set "T1=23.5"
 set "X2=1102" & set "Y2=661" & set "W2=133" & set "H2=16"
@@ -14,7 +14,7 @@ set "VLC_PATH=C:\Program Files\VideoLAN\VLC\vlc.exe"
 set "INPUT_FILE="
 
 :: ============================================================
-:: ANALISI PARAMETRI DI INPUT
+:: INPUT PARAMETER ANALYSIS
 :: ============================================================
 if "%~1" == "" goto :usage
 
@@ -47,32 +47,32 @@ goto :parse_loop
 if not defined INPUT_FILE goto :usage
 where ffmpeg >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo [ERRORE] FFmpeg non trovato. Scaricalo da https://ffmpeg.org/
+    echo [ERRORE] FFmpeg not found. Download it from https://ffmpeg.org/
     exit /b 1
 )
 if not exist "!INPUT_FILE!" (
-    echo [ERRORE] File non trovato: "!INPUT_FILE!"
+    echo [ERRORE] File not found: "!INPUT_FILE!"
     exit /b 1
 )
 
 :: ============================================================
-:: GESTIONE FILE DI OUTPUT E DUPLICATI
+:: OUTPUT FILE MANAGEMENT AND DUPLICATES
 :: ============================================================
-set "BASE_OUT=!FILE_DIR!!FILE_NAME!-noLogoNotebookLM"
+set "BASE_OUT=!FILE_DIR!!FILE_NAME!-LogoRemoved"
 set "OUTPUT_FILE=!BASE_OUT!!FILE_EXT!"
 
 if exist "!OUTPUT_FILE!" (
-    echo [ATTENZIONE] Il file esiste gia': "!OUTPUT_FILE!"
+    echo [WARNING] The file already exists: "!OUTPUT_FILE!"
     echo.
-	echo Opzioni:
-	echo [S] Sovrascrivere
-	echo [N] Nuova Versione
-	echo [A] Annulla
-	choice /C SNA /N /M "Seleziona opzione (S/N/A): "
+	echo Options:
+	echo [O] Overwrite
+	echo [N] New Version
+	echo [C] Cancel
+	choice /C ONC /N /M "Select option (O/N/C): "
 
     if errorlevel 3 (
         echo.
-        echo. & echo [INFO] Operazione annullata. & exit /b 0
+        echo. & echo [INFO] Elaboration cancelled. & exit /b 0
         exit /b 0
     )
     if errorlevel 2 (
@@ -81,7 +81,7 @@ if exist "!OUTPUT_FILE!" (
     )
     if errorlevel 1 (
         set "FF_OVERWRITE=-y"
-        echo. & echo [INFO] Il file sara' sovrascritto.
+        echo. & echo [INFO] The file will be overwritten.
         goto :process
     )
 ) else (
@@ -97,18 +97,18 @@ if exist "!OUTPUT_FILE!" (
     set /a i+=1
     goto :check_version_loop
 )
-echo. & echo [INFO] Creazione versione: "!OUTPUT_FILE!"
+echo. & echo [INFO] Version creation: "!OUTPUT_FILE!"
 
 :process
 :: ============================================================
-:: CALCOLO COORDINATE E ESECUZIONE
+:: COORDINATES CALCULATION AND EXECUTION
 :: ============================================================
 set /a X1_C=X1-OFFSET, Y1_C=Y1-OFFSET, W1_C=W1+(OFFSET*2), H1_C=H1+(OFFSET*2)
 set /a X2_C=X2-OFFSET, Y2_C=Y2-OFFSET, W2_C=W2+(OFFSET*2), H2_C=H2+(OFFSET*2)
 
 echo.
-echo Elaborazione: "!INPUT_FILE!"
-echo Configurazione: OFFSET=!OFFSET!px ^| T1=!T1!s
+echo Source file: "!INPUT_FILE!"
+echo Configuration: OFFSET=!OFFSET!px ^| T1=!T1!s
 echo.
 
 ffmpeg -i "!INPUT_FILE!" -vf "delogo=x=%X1_C%:y=%Y1_C%:w=%W1_C%:h=%H1_C%:enable='between(t,0,%T1%)',delogo=x=%X2_C%:y=%Y2_C%:w=%W2_C%:h=%H2_C%:enable='gt(t,%T1%)'" -c:a copy %FF_OVERWRITE% "!OUTPUT_FILE!"
@@ -116,62 +116,62 @@ ffmpeg -i "!INPUT_FILE!" -vf "delogo=x=%X1_C%:y=%Y1_C%:w=%W1_C%:h=%H1_C%:enable=
 if %ERRORLEVEL% equ 0 (
     echo.
     echo ============================================================
-    echo [OK] Operazione completata con successo!
+    echo [OK] Operation completed successfully!
     echo [OK] Output: "!OUTPUT_FILE!"
     echo ============================================================
     echo.
-    echo Vuoi visualizzare il file generato con VLC ora?
-    choice /C SN /N /M "[S] Si, [N] No: "
+    echo Do you want to view the file generated with VLC now?
+    choice /C YN /N /M "[Y] Yes, [N] No: "
 
     if errorlevel 2 (
-        echo [INFO] Chiusura script.
+        echo [INFO] Script close.
     ) else if errorlevel 1 (
         if exist "!VLC_PATH!" (
-            echo [INFO] Apertura VLC in corso...
+            echo [INFO] Opening VLC...
             start "" "!VLC_PATH!" "!OUTPUT_FILE!"
         ) else (
-            echo [ERRORE] VLC non trovato in: "!VLC_PATH!"
+            echo [ERRORE] VLC not found in: "!VLC_PATH!"
         )
     )
 ) else (
-    echo. & echo [ERRORE] Elaborazione FFmpeg fallita.
+    echo. & echo [ERRORE] FFmpeg processing failed.
 )
 
 exit /b
 
 :usage
 echo.
-echo RIMOZIONE LOGO VIDEO (Basato su FFmpeg)
+echo VIDEO LOGO REMOVAL (FFmpeg-based)
 echo.
-echo SINTASSI:
-echo   VLC-LOGO "file_input" [/CORR valore] [/T1 secondi] [Coordinate]
+echo SYNTAX:
+echo   VLC-LOGO "input_file" [/CORR value] [/T1 seconds] [Coordinates]
 echo.
-echo PARAMETRI:
-echo   file_input      Percorso del video (usare virgolette se ci sono spazi).
-echo   /CORR           Valore di correzione pixel (es: 1 espande l'area di 1px).
-echo   /T1             Tempo di cambio posizione logo (Default: 23.5).
+echo PARAMETERS:
+echo   input_file      Video file path (use quotes if path contains spaces).
+echo   /CORR           Pixel correction value (e.g., 1 expands area by 1px).
+echo   /T1             Logo position change time (Default: 23.5).
 echo.
-echo COORDINATE (Opzionali - sovrascrivono i default):
-echo   /X1, /Y1, /W1, /H1   Area iniziale (da 0 a T1)
-echo   /X2, /Y2, /W2, /H2   Area finale (da T1 in poi)
+echo COORDINATES (Optional - override defaults):
+echo   /X1, /Y1, /W1, /H1   Initial area (from 0 to T1)
+echo   /X2, /Y2, /W2, /H2   Final area (from T1 onwards)
 echo.
-echo ESEMPI:
-echo   1. Uso standard con valori predefiniti:
-echo      vlc-logo-cmd "C:\Video\Lezione.mp4"
+echo EXAMPLES:
+echo   1. Standard usage with default values:
+echo      vlc-logo-cmd "C:\Video\Lecture.mp4"
 echo.
-echo   2. Uso con correzione di 1 pixel (consigliato per bordi puliti):
+echo   2. Usage with 1-pixel correction (recommended for clean edges):
 echo      vlc-logo-cmd "Video.mp4" /CORR 1
 echo.
-echo   3. Cambio del tempo di switch e coordinate prima area:
+echo   3. Changing switch time and first area coordinates:
 echo      vlc-logo-cmd "Video.mp4" /T1 15.0 /X1 800 /Y1 600
 echo.
-echo   4. Esempio che usa i valori predefiniti con tutti i parametri esplicitati:
+echo   4. Example using default values with all parameters explicitly specified:
 echo      vlc-logo-cmd "C:\Video.mp4" /T1 23.5 /CORR 0 /X1 862 /Y1 626 /W1 227 /H1 31 /X2 1102 /Y2 661 /W2 133 /H2 16
-echo        - "C:\Video.mp4": File da elaborare (con virgolette per spazi).
-echo        - /T1 23.5: Al secondo 23.5 il logo cambia posizione.
-echo        - /CORR 0: Nessuna espansione dell'area (usa coordinate esatte).
-echo        - /X1 862 /Y1 626 /W1 227 /H1 31: Area iniziale (Inizio -^> 23.5s).
-echo        - /X2 1102 /Y2 661 /W2 133 /H2 16: Area finale (23.5s -^> Fine).
-echo      i valori predefiniti sono per "Overview video" di NotebookLM
+echo        - "C:\Video.mp4": File to process (use quotes for spaces).
+echo        - /T1 23.5: At 23.5 seconds the logo changes position.
+echo        - /CORR 0: No area expansion (uses exact coordinates).
+echo        - /X1 862 /Y1 626 /W1 227 /H1 31: Initial area (Start -> 23.5s).
+echo        - /X2 1102 /Y2 661 /W2 133 /H2 16: Final area (23.5s -> End).
+echo      Default values are for NotebookLM "Overview video"
 echo.
 exit /b 0
