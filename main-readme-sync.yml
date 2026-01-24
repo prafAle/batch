@@ -1,0 +1,42 @@
+name: Sync Subfolder Summaries to Root README
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**/README.md'  # Si attiva solo se modifichi un README
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Generate Summaries
+        run: |
+          # Inizio della sezione dinamica
+          echo "## 📂 Project Overview" > summary.txt
+          echo "" >> summary.txt
+
+          # Cicla attraverso le cartelle (escludendo la root)
+          for dir in $(find . -maxdepth 1 -type d -not -path '*/.*' -not -path '.'); do
+            folder_name=$(basename "$dir")
+            if [ -f "$dir/README.md" ]; then
+              echo "### [🎵 $folder_name](./$folder_name/)" >> summary.txt
+              # Estrae le prime 3 righe significative dopo il titolo del README interno
+              summary=$(grep -v '^#' "$dir/README.md" | grep -v '^$' | head -n 3)
+              echo "> $summary" >> summary.txt
+              echo "" >> summary.txt
+              echo "[🔍 Read full documentation →](./$folder_name/README.md)" >> summary.txt
+              echo "" >> summary.txt
+            fi
+          done
+
+          # Inserisce il contenuto nel README principale tra i tag e sed -i '//,//{//!d}' README.md
+          sed -i '//r summary.txt' README.md
+
+      - name: Commit and Push changes
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "docs: update root README summaries [skip ci]"
