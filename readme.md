@@ -8,6 +8,8 @@ A professional collection of automation tools for media processing, optimized fo
 
 This repository contains specialized scripts for video and audio manipulation. Each tool is self-contained in its own directory with specific documentation.
 
+## 🛠 Global Prerequisites
+
 ### 1. [🎵 MP3extract](./MP3extract/)
 **Quick batch conversion from MP4 to MP3.**
 - **Primary Use**: Merges multiple video files into a single optimized audio track.
