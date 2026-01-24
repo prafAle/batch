@@ -1,0 +1,48 @@
+name: Auto-update Root README Summary
+
+on:
+  push:
+    paths:
+      - "**/README.md"  # Si attiva quando modifichi un README qualsiasi
+  workflow_dispatch:    # Permette l'esecuzione manuale
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Generate Summary Grid
+        run: |
+          echo "Generating project summaries..."
+          
+          # Inizio della variabile che conterrà la tabella
+          CONTENT="| Tool | Description | Status |"
+          CONTENT="$CONTENT\n| :--- | :--- | :--- |"
+
+          # Scansiona le sottocartelle (escludendo cartelle nascoste e di sistema)
+          for dir in */; do
+            # Rimuove lo slash finale per il nome
+            foldername=${dir%/}
+            
+            if [ -f "$dir/README.md" ]; then
+              # ESTRAZIONE: Prende la prima riga di testo dopo il titolo #
+              # (Rimuove righe vuote e il titolo stesso)
+              description=$(grep -v '^#' "$dir/README.md" | grep -v '^$' | head -n 1 | sed 's/|/\\|/g')
+              
+              # CERCA LO STATUS: Cerca una riga che contiene "Status:"
+              status=$(grep -i "Status:" "$dir/README.md" | cut -d':' -f2 | xargs || echo "N/A")
+              
+              CONTENT="$CONTENT\n| [**$foldername**](./$dir) | $description | $status |"
+            fi
+          done
+
+          # Inserimento nel file README.md
+          # Usa perl per sostituire il blocco tra i commenti HTML
+          perl -0777 -i -pe "s/().*()/\$1\n$CONTENT\n\$2/sg" README.md
+
+      - name: Commit and Push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: automatic update of project summaries in root README"
