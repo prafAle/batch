@@ -1,201 +1,291 @@
-@cls
 @echo off
-echo ==================================================
-echo               MP4 to MP3 CONVERTER
-echo ==================================================
-echo.
 setlocal enabledelayedexpansion
+cls
 
-:: Debug mode flag - set to "true" for detailed output
-set "debugging=false"
+:: ============================================================================
+::  FILENAME:   extractMP3Adv.cmd
+::  PURPOSE:    Extract MP3 audio from MP4 files with merge/split modes,
+::               dynamic bitrate calculation, presets, color output,
+::               output directory option, ffmpeg checks and modern UI.
+::  AUTHOR:     Alessandro Di Dio Rosso
+::  VERSION:    2026-03-25
+::
+::  USAGE:
+::      extractMP3Adv.cmd  <input_path>  [/mode:merge|split]
+::                                         [/preset:HQ|MED|LOW|SIZE]
+::                                         [/out:"C:\OutputFolder"]
+::
+::  DEFAULTS:
+::      mode    = merge
+::      preset  = MED
+::      threads = auto (ffmpeg default)
+::      outdir  = current folder
+::
+::  EXAMPLES:
+::      extractMP3Adv.cmd "D:\Videos"
+::      extractMP3Adv.cmd "D:\Videos" /mode:split
+::      extractMP3Adv.cmd "D:\Videos" /mode:merge /preset:HQ
+::      extractMP3Adv.cmd "file.mp4"  /mode:split
+:: ============================================================================
+:: Enable ANSI escape sequences for colors
+for /f "tokens=2 delims=: " %%a in ('reg query HKCU\Console ^| find "VirtualTerminalLevel"') do set ANSI=%%a >nul 2>&1
+if "%ANSI%" neq "0x1" reg add HKCU\Console /f /v VirtualTerminalLevel /t REG_DWORD /d 1 >nul
 
-:: =======================================================
-:: DEPENDENCY CHECK - Verify FFmpeg/FFprobe are available
-:: =======================================================
-where ffmpeg >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo [ERROR] FFmpeg not found! Please download from https://ffmpeg.org/
-    echo [ERROR] Ensure ffmpeg.exe and ffprobe.exe are in system PATH
+:: CMD default colors
+color 07
+
+:: ANSI color definitions
+set C_RED=[91m
+set C_GREEN=[92m
+set C_YELLOW=[93m
+set C_BLUE=[94m
+set C_MAGENTA=[95m
+set C_CYAN=[96m
+set C_RESET=[0m
+
+:: ============================================================================
+:: HELP
+:: ============================================================================
+if "%~1"=="" goto :HELP
+if /I "%~1"=="/help" goto :HELP
+if /I "%~1"=="-help" goto :HELP
+
+
+:PARSE_ARGS
+set "INPUT=%~1"
+set "MODE=merge"
+set "PRESET=MED"
+set "OUTDIR=%cd%"
+
+shift
+:ARGLOOP
+if "%~1"=="" goto :AFTER_PARSE
+
+if /I "%~1"=="/mode:merge" set MODE=merge
+if /I "%~1"=="/mode:split" set MODE=split
+
+if /I "%~1"=="/preset:HQ" set PRESET=HQ
+if /I "%~1"=="/preset:MED" set PRESET=MED
+if /I "%~1"=="/preset:LOW" set PRESET=LOW
+if /I "%~1"=="/preset:SIZE" set PRESET=SIZE
+
+echo %~1 | findstr /I "^/out:" >nul && (
+    set "OUTDIR=%~1"
+    set "OUTDIR=!OUTDIR:/out:=!"
+    set "OUTDIR=!OUTDIR:"=!"
+)
+
+shift
+goto :ARGLOOP
+
+
+:AFTER_PARSE
+
+:: ============================================================================
+:: CHECK FFMPEG / FFPROBE
+:: ============================================================================
+where ffmpeg >nul 2>&1
+if errorlevel 1 (
+    echo %C_RED%ERROR:%C_RESET% ffmpeg is not installed or not in PATH.
+    echo Install ffmpeg from: https://ffmpeg.org/
+    echo Then re-run this script.
+    pause
+    exit /b
+)
+
+where ffprobe >nul 2>&1
+if errorlevel 1 (
+    echo %C_RED%ERROR:%C_RESET% ffprobe is not installed or not in PATH.
+    echo Install ffmpeg tools from: https://ffmpeg.org/
+    echo Then re-run this script.
+    pause
+    exit /b
+)
+
+:: ============================================================================
+:: VALIDATE INPUT PATH
+:: ============================================================================
+if not exist "%INPUT%" (
+    echo %C_RED%ERROR:%C_RESET% Input path does not exist:
+    echo        "%INPUT%"
     pause
     exit /b 1
 )
 
-where ffprobe >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo [ERROR] FFprobe not found! This is part of FFmpeg package.
-    echo [ERROR] Reinstall FFmpeg to get ffprobe.exe
-    pause
-    exit /b 1
-)
+set "IS_DIR=false"
+if exist "%INPUT%\*" set "IS_DIR=true"
 
-:: =======================================================
-:: GENERATE YYYYMMDD_hhmmss TIMESTAMP and OUTPUT FILENAME 
-:: =======================================================
-if "%debugging%"=="true" echo __________________________________________________Generating output filename
+
+:: ============================================================================
+:: GENERATE TIMESTAMP
+:: ============================================================================
 for /f "tokens=1-6 delims=/:., " %%a in ("%date% %time%") do (
-    set bYYYY=%%c
-    set bMM=%%b
-    set bDD=%%a
-    set bHH=%%d
-    set bMin=%%e
-    set bSec=%%f
+    set YYYY=%%c
+    set MM=%%b
+    set DD=%%a
+    set HH=%%d
+    set Min=%%e
+    set Sec=%%f
+)
+if %MM% lss 10 set MM=0%MM%
+if %DD% lss 10 set DD=0%DD%
+if %HH% lss 10 set HH=0%HH%
+if %Min% lss 10 set Min=0%Min%
+if %Sec% lss 10 set Sec=0%Sec%
+
+set TIMESTAMP=%YYYY%%MM%%DD%_%HH%%Min%%Sec%
+
+
+:: ============================================================================
+:: COUNT FILES
+:: ============================================================================
+set FILECOUNT=0
+
+if "%IS_DIR%"=="true" (
+    for %%I in ("%INPUT%\*.mp4") do set /a FILECOUNT+=1
+) else (
+    set FILECOUNT=1
 )
 
-:: Ensure all values have 2 digits
-if %bMM% lss 10 set bMM=0%bMM%
-if %bDD% lss 10 set bDD=0%bDD%
-if %bHH% lss 10 set bHH=0%bHH%
-if %bMin% lss 10 set bMin=0%bMin%
-if %bSec% lss 10 set bSec=0%bSec%
-
-set "bTIMESTAMP=%bYYYY%%bMM%%bDD%_%bHH%%bMin%%bSec%"
-
-:: Output filename with timestamp
-set "bOutput_FILE=%bTIMESTAMP%_source.mp3"
-
-if "%debugging%"=="true" echo __________________________________________________ - %bOutput_FILE%
-if "%debugging%"=="true" pause
-
-:: ==============================================================
-::    AUDIO MERGE FOR NOTEBOOKLM %bYYYY%-%bMM%-%bDD% %bHH%:%bMin%:%bSec%
-:: ==============================================================
-
-:: Configuration paths
-set "MP4_SOURCE_DIR=mp4b"
-set "TEMP_DIR=%tmp%\%bTIMESTAMP%_audio_merge"
-set "LIST_FILE=%TEMP_DIR%\%bTIMESTAMP%_list.txt"
-
-if "%debugging%"=="true" echo __________________________________________________Configuration paths
-if "%debugging%"=="true" echo __________________________________________________ - %MP4_SOURCE_DIR%
-if "%debugging%"=="true" echo __________________________________________________ - %TEMP_DIR%
-if "%debugging%"=="true" echo __________________________________________________ - %LIST_FILE%
-
-:: Create temporary directory
-if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
-
-:: Check if MP4 source directory exists
-if not exist "%MP4_SOURCE_DIR%" (
-    echo [ERROR] Directory "%MP4_SOURCE_DIR%" not found!
-    echo [INFO]  Create a folder named "mp4b" and place your MP4 files in it
+if %FILECOUNT%==0 (
+    echo %C_RED%ERROR:%C_RESET% No MP4 files found.
     pause
-    exit /b 1
+    exit /b
 )
 
-:: Check if there are MP4 files in the directory
-dir "%MP4_SOURCE_DIR%\*.mp4" >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo [ERROR] No MP4 files found in "%MP4_SOURCE_DIR%\"
-    echo [INFO]  Please add MP4 files to the mp4b folder
-    pause
-    exit /b 1
-)
-
-:: Calculate total size of MP4 files
-set total_size=0
-for %%I in ("%MP4_SOURCE_DIR%\*.mp4") do (
-    set /a total_size+=%%~zI
-)
-set /a total_size_mb=!total_size!/1048576
-
-echo ==================================================
-echo                   MP4 FILE ANALYSIS
-echo ==================================================
-echo    Date and Time:       %bYYYY%-%bMM%-%bDD% %bHH%:%bMin%:%bSec%
-echo    Source Directory:    %MP4_SOURCE_DIR%
-echo    Total Size:          !total_size_mb!MB
-echo.
-
-:: Calculate total duration using ffprobe
-set total_duration=0
-for %%I in ("%MP4_SOURCE_DIR%\*.mp4") do (
-    for /f "tokens=*" %%D in ('ffprobe -v error -show_entries format^=duration -of default^=noprint_wrappers^=1:nokey^=1 "%%I" 2^>^&1') do (
-        set /a total_duration+=%%D
+if /I "%MODE%"=="merge" (
+    if %FILECOUNT% LSS 2 (
+        echo %C_RED%ERROR:%C_RESET% Merge mode requires at least 2 files.
+        echo Found only %FILECOUNT% MP4 file(s). Use /mode:split instead.
+        pause
+        exit /b
     )
 )
 
-:: Calculate optimal bitrate (target 199MB)
-if %total_duration% equ 0 (
-    echo [ERROR] Could not calculate total duration of MP4 files
-    echo [INFO]  Ensure all MP4 files have valid audio streams
-    pause
-    exit /b 1
-)
 
-set /a target_bitrate=(199*1024*8)/!total_duration!
-if !target_bitrate! gtr 128 set target_bitrate=128
-if !target_bitrate! lss 32 set target_bitrate=32
+:: ============================================================================
+:: PRESET MODIFIERS (Preset B)
+::   HQ   = x1.5   (capped at 320 kbps)
+::   MED  = x1.0
+::   LOW  = x0.6
+::   SIZE = x1.0 (keeps default dynamic size logic)
+:: ============================================================================
+set MULTIPLIER=1.0
+if /I "%PRESET%"=="HQ" set MULTIPLIER=1.5
+if /I "%PRESET%"=="MED" set MULTIPLIER=1.0
+if /I "%PRESET%"=="LOW" set MULTIPLIER=0.6
+if /I "%PRESET%"=="SIZE" set MULTIPLIER=1.0
 
-:: Calculate duration in minutes
-set /a total_minutes=!total_duration!/60
-set /a total_seconds=!total_duration!%%60
 
-echo Total Duration: !total_duration! seconds (!total_minutes!m !total_seconds!s)
-echo Calculated Bitrate: !target_bitrate!kbps
-echo.
+:: ============================================================================
+:: SPLIT MODE
+:: ============================================================================
+if /I "%MODE%"=="split" goto :SPLIT_MODE
 
-:: Create file list for ffmpeg with correct paths
-echo Creating file list for merge...
-break > "%LIST_FILE%"
-for %%I in ("%MP4_SOURCE_DIR%\*.mp4") do (
+
+:: ============================================================================
+:: MERGE MODE
+:: ============================================================================
+:MERGE_MODE
+
+set "TEMP=%tmp%\%TIMESTAMP%_merge"
+set "LIST_FILE=%TEMP%\list.txt"
+
+mkdir "%TEMP%" >nul 2>&1
+break>"%LIST_FILE%"
+
+for %%I in ("%INPUT%\*.mp4") do (
     echo file '%%~fI' >> "%LIST_FILE%"
 )
 
-echo MP4 files found:
-dir "%MP4_SOURCE_DIR%\*.mp4" /b /on
-echo.
+:: Calculate total duration
+set total_duration=0
 
-:: Verify the list was created correctly
-if "%debugging%"=="true" (
-    echo List contents:
-    type "%LIST_FILE%"
-    echo.
-)
-
-:: Execute merge
-echo Merging files at !target_bitrate!kbps...
-echo This may take several minutes depending on file sizes...
-echo.
-
-ffmpeg -f concat -safe 0 -i "%LIST_FILE%" -b:a !target_bitrate!k -hide_banner -stats "%TEMP_DIR%\temp_merged.mp3"
-
-if errorlevel 1 (
-    echo [ERROR] FFmpeg processing failed!
-    echo [INFO]  Check if MP4 files contain valid audio streams
-    goto :cleanup
-)
-
-if exist "%TEMP_DIR%\temp_merged.mp3" (
-    :: Move the merged file to current directory
-    move "%TEMP_DIR%\temp_merged.mp3" "%bOutput_FILE%" >nul 2>nul
-    
-    :: Verify final file size
-    for %%I in ("%bOutput_FILE%") do (
-        set /a final_size_mb=%%~zI/1048576
+for /f "tokens=*" %%F in ("%LIST_FILE%") do (
+    for /f "tokens=2 delims='" %%A in ("%%F") do (
+        for /f "tokens=* " %%D in ('ffprobe -v error -show_entries format^=duration -of csv=p=0 "%%A"') do (
+            set /a total_duration+=%%D
+        )
     )
-    
-    echo.
-    echo ==================================================
-    echo                 MERGE COMPLETED!
-    echo ==================================================
-    echo Output File:    %bOutput_FILE%
-    echo File Size:      !final_size_mb!MB
-    echo Bitrate:        !target_bitrate!kbps
-    echo Duration:       !total_minutes!m !total_seconds!s
-    echo Timestamp:      %bTIMESTAMP%
-    echo __________________________________________________
-    echo.
+)
+
+:: Dynamic bitrate for size limit (199 MB max)
+set /a bitrate=(199*1024*8)/!total_duration!
+
+:: Apply preset multiplier
+set /a bitrate=bitrate*MULTIPLIER
+
+if %bitrate% GTR 320 set bitrate=320
+if %bitrate% LSS 32 set bitrate=32
+
+echo.
+echo %C_CYAN%Merging files...%C_RESET%
+echo Bitrate: %bitrate% kbps
+echo Output folder: "%OUTDIR%"
+
+
+ffmpeg -f concat -safe 0 -i "%LIST_FILE%" ^
+       -b:a %bitrate%k -hide_banner -stats ^
+       "%TEMP%\merged.mp3"
+
+move "%TEMP%\merged.mp3" "%OUTDIR%\%TIMESTAMP%_MergedAudio.mp3" >nul
+echo.
+echo %C_GREEN%MERGE COMPLETED.%C_RESET%
+
+rd /s /q "%TEMP%"
+pause
+exit /b
+
+
+:: ============================================================================
+:: SPLIT MODE
+:: ============================================================================
+:SPLIT_MODE
+echo %C_CYAN%Split mode active.%C_RESET%
+
+if "%IS_DIR%"=="true" (
+    for %%I in ("%INPUT%\*.mp4") do (
+        echo Extracting: %%~nxI
+        ffmpeg -hide_banner -loglevel error -i "%%I" ^
+               -vn -acodec libmp3lame -b:a 128k ^
+               "%OUTDIR%\%%~nI.mp3"
+    )
 ) else (
-    echo [ERROR] Merge operation failed!
-    echo [INFO]  Check temporary directory: %TEMP_DIR%
+    echo Extracting single file...
+    ffmpeg -hide_banner -loglevel error -i "%INPUT%" ^
+           -vn -acodec libmp3lame -b:a 128k ^
+           "%OUTDIR%\%~n1.mp3"
 )
 
-:cleanup
-:: Cleanup temporary files
-if exist "%TEMP_DIR%" (
-    if "%debugging%"=="false" (
-        del "%TEMP_DIR%\*" /q >nul 2>nul
-        rd "%TEMP_DIR%" >nul 2>nul
-    ) else (
-        echo [DEBUG] Temporary directory preserved: %TEMP_DIR%
-    )
-)
+echo.
+echo %C_GREEN%SPLIT COMPLETED.%C_RESET%
+pause
+exit /b
+
+
+:: ============================================================================
+:: HELP
+:: ============================================================================
+:HELP
+echo.
+echo --------------------- HELP -----------------------
+echo extractMP3Adv.cmd ^<input_path^> [/mode:merge^|split] [/preset:HQ^|MED^|LOW^|SIZE] [/out:"folder"]
+echo.
+echo Extract MP3 audio from MP4 files with merge/split modes,
+echo dynamic bitrate calculation, presets, color output,
+echo output directory option, ffmpeg checks and modern UI.
+echo.
+echo Modes:
+echo   merge   = Combine multiple MP4 files into ONE MP3
+echo   split   = Produce one MP3 per MP4
+echo.
+echo Presets:
+echo   HQ    = 1.5x bitrate (max 320 kbps)
+echo   MED   = 1.0x (default)
+echo   LOW   = 0.6x bitrate
+echo   SIZE  = size‑optimized automatic calculation
+echo.
+echo Example:
+echo   extractMP3Adv.cmd "D:\clips" /mode:merge /preset:HQ /out:"D:\audio"
+echo ---------------------------------------------------
+exit /b
