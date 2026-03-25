@@ -7,7 +7,6 @@ cls
 ::  PURPOSE:    Extract MP3 audio from MP4 files with merge/split modes,
 ::               dynamic bitrate calculation, presets, color output,
 ::               output directory option, ffmpeg checks and modern UI.
-::  AUTHOR:     Alessandro Di Dio Rosso
 ::  VERSION:    2026-03-25
 ::
 ::  USAGE:
