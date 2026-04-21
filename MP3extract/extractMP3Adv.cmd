@@ -1,290 +1,343 @@
 @echo off
-setlocal enabledelayedexpansion
-cls
+setlocal EnableExtensions EnableDelayedExpansion
+title extractMP3Adv - Professional Audio Extractor
 
 :: ============================================================================
 ::  FILENAME:   extractMP3Adv.cmd
-::  PURPOSE:    Extract MP3 audio from MP4 files with merge/split modes,
-::               dynamic bitrate calculation, presets, color output,
-::               output directory option, ffmpeg checks and modern UI.
-::  VERSION:    2026-03-25
+::  PURPOSE:    Extract audio from MP4 files with single/split/merge modes,
+::               silence removal, codec-aware dynamic bitrate calculation,
+::               quality presets, colored output, output directory support,
+::               ffmpeg validation and modern command-line UI.
+::  VERSION:    2026-04-21
 ::
 ::  USAGE:
 ::      extractMP3Adv.cmd  <input_path>  [/mode:merge|split]
-::                                         [/preset:HQ|MED|LOW|SIZE]
-::                                         [/out:"C:\OutputFolder"]
+::                                       [/preset:HQ|MED|LOW]
+::                                       [/codec:mp3|aac|opus]
+::                                       [/out:"C:\OutputFolder"]
 ::
 ::  DEFAULTS:
-::      mode    = merge
-::      preset  = MED
-::      threads = auto (ffmpeg default)
-::      outdir  = current folder
+::      mode            = auto (single/split/merge)
+::      preset          = MED
+::      codec           = mp3
+::      silence removal = enabled (single & split only)
+::      outdir          = current folder
 ::
 ::  EXAMPLES:
 ::      extractMP3Adv.cmd "D:\Videos"
 ::      extractMP3Adv.cmd "D:\Videos" /mode:split
 ::      extractMP3Adv.cmd "D:\Videos" /mode:merge /preset:HQ
-::      extractMP3Adv.cmd "file.mp4"  /mode:split
+::      extractMP3Adv.cmd "file.mp4"
 :: ============================================================================
-:: Enable ANSI escape sequences for colors
-for /f "tokens=2 delims=: " %%a in ('reg query HKCU\Console ^| find "VirtualTerminalLevel"') do set ANSI=%%a >nul 2>&1
-if "%ANSI%" neq "0x1" reg add HKCU\Console /f /v VirtualTerminalLevel /t REG_DWORD /d 1 >nul
 
-:: CMD default colors
-color 07
+:: ============================================================================
+:: ANSI COLORS
+:: ============================================================================
+for /f %%a in ('echo prompt $E ^| cmd') do set "ESC=%%a"
+set C_INFO=%ESC%[94m
+set C_WARN=%ESC%[93m
+set C_ERR=%ESC%[91m
+set C_OK=%ESC%[92m
+set C_LABEL=%ESC%[96m
+set C_RESET=%ESC%[0m
 
-:: ANSI color definitions
-set C_RED=[91m
-set C_GREEN=[92m
-set C_YELLOW=[93m
-set C_BLUE=[94m
-set C_MAGENTA=[95m
-set C_CYAN=[96m
-set C_RESET=[0m
+:: ============================================================================
+:: SILENCE REMOVAL CONFIGURATION
+:: ============================================================================
+set REMOVE_SILENCE=1
+set SILENCE_THRESHOLD=-30dB
+set SILENCE_DURATION=1.0
+
+:: ============================================================================
+:: APPLICATION INFO
+:: ============================================================================
+set APP_NAME=extractMP3Adv
+set APP_VER=2026.04.21
+
+:: ============================================================================
+:: DEFAULT VALUES
+:: ============================================================================
+set MODE=merge
+set PRESET=MED
+set CODEC=mp3
+set OUTDIR=%cd%
+set INPUT=
+set INPUT_BASENAME=
+set OUTPUT_LIST=
 
 :: ============================================================================
 :: HELP
 :: ============================================================================
-if "%~1"=="" goto :HELP
-if /I "%~1"=="/help" goto :HELP
-if /I "%~1"=="-help" goto :HELP
+if "%~1"=="/help" goto :HELP
+if "%~1"=="-help" goto :HELP
+if "%~1"=="/?" goto :HELP
+if "%~1"=="-?" goto :HELP
 
+:: ============================================================================
+:: SINGLE INSTANCE LOCK
+:: ============================================================================
+set LOCKFILE=%temp%\extractMP3Adv.lock
 
-:PARSE_ARGS
-set "INPUT=%~1"
-set "MODE=merge"
-set "PRESET=MED"
-set "OUTDIR=%cd%"
+if exist "%LOCKFILE%" (
+    echo %C_WARN%[WARN]%C_RESET% A previous execution lock was found.
+    echo %C_WARN%[WARN]%C_RESET% Removing stale lock and continuing...
+    del "%LOCKFILE%" >nul 2>&1
+)
 
-shift
-:ARGLOOP
-if "%~1"=="" goto :AFTER_PARSE
+echo %date% %time% > "%LOCKFILE%"
+
+:: ============================================================================
+:: ARGUMENT PARSING
+:: ============================================================================
+if "%~1"=="" (
+    set INPUT=%cd%
+) else (
+    set INPUT=%~1
+    shift
+)
+
+:ARG_LOOP
+if "%~1"=="" goto :START
 
 if /I "%~1"=="/mode:merge" set MODE=merge
 if /I "%~1"=="/mode:split" set MODE=split
 
-if /I "%~1"=="/preset:HQ" set PRESET=HQ
+if /I "%~1"=="/preset:HQ"  set PRESET=HQ
 if /I "%~1"=="/preset:MED" set PRESET=MED
 if /I "%~1"=="/preset:LOW" set PRESET=LOW
-if /I "%~1"=="/preset:SIZE" set PRESET=SIZE
+
+if /I "%~1"=="/codec:mp3"  set CODEC=mp3
+if /I "%~1"=="/codec:aac"  set CODEC=aac
+if /I "%~1"=="/codec:opus" set CODEC=opus
 
 echo %~1 | findstr /I "^/out:" >nul && (
-    set "OUTDIR=%~1"
-    set "OUTDIR=!OUTDIR:/out:=!"
-    set "OUTDIR=!OUTDIR:"=!"
+    set OUTDIR=%~1
+    set OUTDIR=!OUTDIR:/out:=!
+    set OUTDIR=!OUTDIR:"=!
 )
 
 shift
-goto :ARGLOOP
-
-
-:AFTER_PARSE
+goto :ARG_LOOP
 
 :: ============================================================================
-:: CHECK FFMPEG / FFPROBE
+:: START
 :: ============================================================================
-where ffmpeg >nul 2>&1
-if errorlevel 1 (
-    echo %C_RED%ERROR:%C_RESET% ffmpeg is not installed or not in PATH.
-    echo Install ffmpeg from: https://ffmpeg.org/
-    echo Then re-run this script.
-    pause
-    exit /b
+:START
+echo.
+echo %C_INFO%===================================================%C_RESET%
+echo   %APP_NAME% v%APP_VER%
+echo %C_INFO%===================================================%C_RESET%
+echo.
+
+where ffmpeg >nul 2>&1 || (
+    echo %C_ERR%[ERROR]%C_RESET% ffmpeg was not found in PATH
+    goto :CLEAN_EXIT
 )
 
-where ffprobe >nul 2>&1
-if errorlevel 1 (
-    echo %C_RED%ERROR:%C_RESET% ffprobe is not installed or not in PATH.
-    echo Install ffmpeg tools from: https://ffmpeg.org/
-    echo Then re-run this script.
-    pause
-    exit /b
-)
-
-:: ============================================================================
-:: VALIDATE INPUT PATH
-:: ============================================================================
 if not exist "%INPUT%" (
-    echo %C_RED%ERROR:%C_RESET% Input path does not exist:
-    echo        "%INPUT%"
-    pause
-    exit /b 1
+    echo %C_ERR%[ERROR]%C_RESET% Invalid input path: "%INPUT%"
+    goto :CLEAN_EXIT
 )
 
-set "IS_DIR=false"
-if exist "%INPUT%\*" set "IS_DIR=true"
+set IS_DIR=false
+if exist "%INPUT%\*" set IS_DIR=true
 
+if "!IS_DIR!"=="false" (
+    for %%F in ("%INPUT%") do set INPUT_BASENAME=%%~nF
+)
 
 :: ============================================================================
-:: GENERATE TIMESTAMP
+:: TIMESTAMP GENERATION
 :: ============================================================================
 for /f "tokens=1-6 delims=/:., " %%a in ("%date% %time%") do (
-    set YYYY=%%c
-    set MM=%%b
     set DD=%%a
+    set MM=%%b
+    set YYYY=%%c
     set HH=%%d
-    set Min=%%e
-    set Sec=%%f
+    set MN=%%e
+    set SS=%%f
 )
-if %MM% lss 10 set MM=0%MM%
-if %DD% lss 10 set DD=0%DD%
-if %HH% lss 10 set HH=0%HH%
-if %Min% lss 10 set Min=0%Min%
-if %Sec% lss 10 set Sec=0%Sec%
-
-set TIMESTAMP=%YYYY%%MM%%DD%_%HH%%Min%%Sec%
-
+if !HH! LSS 10 set HH=0!HH!
+if !MN! LSS 10 set MN=0!MN!
+if !SS! LSS 10 set SS=0!SS!
+set TS=!YYYY!!MM!!DD!_!HH!!MN!!SS!
 
 :: ============================================================================
-:: COUNT FILES
+:: FILE COUNT AND MODE RESOLUTION
 :: ============================================================================
 set FILECOUNT=0
-
-if "%IS_DIR%"=="true" (
-    for %%I in ("%INPUT%\*.mp4") do set /a FILECOUNT+=1
+if "!IS_DIR!"=="true" (
+    for %%F in ("%INPUT%\*.mp4") do set /a FILECOUNT+=1
 ) else (
     set FILECOUNT=1
 )
 
-if %FILECOUNT%==0 (
-    echo %C_RED%ERROR:%C_RESET% No MP4 files found.
-    pause
-    exit /b
+if !FILECOUNT! EQU 1 set MODE=single
+
+:: ============================================================================
+:: CODEC SELECTION
+:: ============================================================================
+if "!CODEC!"=="mp3"  set ACODEC=libmp3lame& set EXT=mp3
+if "!CODEC!"=="aac"  set ACODEC=aac& set EXT=m4a
+if "!CODEC!"=="opus" set ACODEC=libopus& set EXT=opus
+
+:: ============================================================================
+:: PRESET → BASE BITRATE (MP3 REFERENCE)
+:: ============================================================================
+set BITRATE_MP3=128k
+if /I "!PRESET!"=="LOW" set BITRATE_MP3=96k
+if /I "!PRESET!"=="MED" set BITRATE_MP3=128k
+if /I "!PRESET!"=="HQ"  set BITRATE_MP3=192k
+
+:: ============================================================================
+:: BITRATE ADJUSTMENT PER CODEC (PERCEIVED QUALITY)
+:: ============================================================================
+set BITRATE=!BITRATE_MP3!
+
+if /I "!CODEC!"=="aac" (
+    if "!PRESET!"=="LOW" set BITRATE=80k
+    if "!PRESET!"=="MED" set BITRATE=112k
+    if "!PRESET!"=="HQ"  set BITRATE=160k
 )
 
-if /I "%MODE%"=="merge" (
-    if %FILECOUNT% LSS 2 (
-        echo %C_RED%ERROR:%C_RESET% Merge mode requires at least 2 files.
-        echo Found only %FILECOUNT% MP4 file(s). Use /mode:split instead.
-        pause
-        exit /b
+if /I "!CODEC!"=="opus" (
+    if "!PRESET!"=="LOW" set BITRATE=64k
+    if "!PRESET!"=="MED" set BITRATE=80k
+    if "!PRESET!"=="HQ"  set BITRATE=96k
+)
+
+:: ============================================================================
+:: SINGLE MODE
+:: ============================================================================
+if "!MODE!"=="single" (
+    echo %C_INFO%[INFO]%C_RESET% Mode: SINGLE
+    if "%REMOVE_SILENCE%"=="1" echo %C_INFO%[INFO]%C_RESET% Silence removal ENABLED
+    echo %C_INFO%[INFO]%C_RESET% Audio preset: !PRESET!  ^(bitrate: !BITRATE!^)
+
+    set OUTFILE=%OUTDIR%\!TS!_!INPUT_BASENAME!.!EXT!
+
+    if "%REMOVE_SILENCE%"=="1" (
+        ffmpeg -hide_banner -loglevel error -stats ^
+            -i "%INPUT%" -vn -c:a !ACODEC! -b:a !BITRATE! ^
+            -af "silenceremove=stop_periods=-1:stop_duration=%SILENCE_DURATION%:stop_threshold=%SILENCE_THRESHOLD%" ^
+            "!OUTFILE!"
+    ) else (
+        ffmpeg -hide_banner -loglevel error -stats ^
+            -i "%INPUT%" -vn -c:a !ACODEC! -b:a !BITRATE! "!OUTFILE!"
     )
+    goto :SUMMARY
 )
-
-
-:: ============================================================================
-:: PRESET MODIFIERS (Preset B)
-::   HQ   = x1.5   (capped at 320 kbps)
-::   MED  = x1.0
-::   LOW  = x0.6
-::   SIZE = x1.0 (keeps default dynamic size logic)
-:: ============================================================================
-set MULTIPLIER=1.0
-if /I "%PRESET%"=="HQ" set MULTIPLIER=1.5
-if /I "%PRESET%"=="MED" set MULTIPLIER=1.0
-if /I "%PRESET%"=="LOW" set MULTIPLIER=0.6
-if /I "%PRESET%"=="SIZE" set MULTIPLIER=1.0
-
 
 :: ============================================================================
 :: SPLIT MODE
 :: ============================================================================
-if /I "%MODE%"=="split" goto :SPLIT_MODE
+if "!MODE!"=="split" (
+    echo %C_INFO%[INFO]%C_RESET% Mode: SPLIT
+    if "%REMOVE_SILENCE%"=="1" echo %C_INFO%[INFO]%C_RESET% Silence removal ENABLED
+    echo %C_INFO%[INFO]%C_RESET% Audio preset: !PRESET!  ^(bitrate: !BITRATE!^)
 
+    for %%F in ("%INPUT%\*.mp4") do (
+        set OUTFILE=%OUTDIR%\!TS!_%%~nF.!EXT!
+        if "%REMOVE_SILENCE%"=="1" (
+            ffmpeg -hide_banner -loglevel error -stats ^
+                -i "%%F" -vn -c:a !ACODEC! -b:a !BITRATE! ^
+                -af "silenceremove=stop_periods=-1:stop_duration=%SILENCE_DURATION%:stop_threshold=%SILENCE_THRESHOLD%" ^
+                "!OUTFILE!"
+        ) else (
+            ffmpeg -hide_banner -loglevel error -stats ^
+                -i "%%F" -vn -c:a !ACODEC! -b:a !BITRATE! "!OUTFILE!"
+        )
+        set OUTPUT_LIST=!OUTPUT_LIST!|!OUTFILE!
+    )
+    goto :SUMMARY
+)
 
 :: ============================================================================
 :: MERGE MODE
 :: ============================================================================
-:MERGE_MODE
+echo %C_INFO%[INFO]%C_RESET% Mode: MERGE
+echo %C_INFO%[INFO]%C_RESET% Audio preset: !PRESET!  ^(bitrate: !BITRATE!^)
 
-set "TEMP=%tmp%\%TIMESTAMP%_merge"
-set "LIST_FILE=%TEMP%\list.txt"
+set TEMP=%temp%\%APP_NAME%_%TS%
+set LIST=%TEMP%\list.txt
+mkdir "%TEMP%" >nul
+break>"%LIST%"
+for %%F in ("%INPUT%\*.mp4") do echo file '%%~fF'>>"%LIST%"
 
-mkdir "%TEMP%" >nul 2>&1
-break>"%LIST_FILE%"
-
-for %%I in ("%INPUT%\*.mp4") do (
-    echo file '%%~fI' >> "%LIST_FILE%"
-)
-
-:: Calculate total duration
-set total_duration=0
-
-for /f "tokens=*" %%F in ("%LIST_FILE%") do (
-    for /f "tokens=2 delims='" %%A in ("%%F") do (
-        for /f "tokens=* " %%D in ('ffprobe -v error -show_entries format^=duration -of csv=p=0 "%%A"') do (
-            set /a total_duration+=%%D
-        )
-    )
-)
-
-:: Dynamic bitrate for size limit (199 MB max)
-set /a bitrate=(199*1024*8)/!total_duration!
-
-:: Apply preset multiplier
-set /a bitrate=bitrate*MULTIPLIER
-
-if %bitrate% GTR 320 set bitrate=320
-if %bitrate% LSS 32 set bitrate=32
-
-echo.
-echo %C_CYAN%Merging files...%C_RESET%
-echo Bitrate: %bitrate% kbps
-echo Output folder: "%OUTDIR%"
-
-
-ffmpeg -f concat -safe 0 -i "%LIST_FILE%" ^
-       -b:a %bitrate%k -hide_banner -stats ^
-       "%TEMP%\merged.mp3"
-
-move "%TEMP%\merged.mp3" "%OUTDIR%\%TIMESTAMP%_MergedAudio.mp3" >nul
-echo.
-echo %C_GREEN%MERGE COMPLETED.%C_RESET%
-
-rd /s /q "%TEMP%"
-pause
-exit /b
-
+set OUTFILE=%OUTDIR%\!TS!_Merged.!EXT!
+ffmpeg -hide_banner -loglevel error -stats ^
+    -f concat -safe 0 -i "%LIST%" -vn -c:a !ACODEC! -b:a !BITRATE! "!OUTFILE!"
+set OUTPUT_LIST=!OUTFILE!
 
 :: ============================================================================
-:: SPLIT MODE
+:: SUMMARY
 :: ============================================================================
-:SPLIT_MODE
-echo %C_CYAN%Split mode active.%C_RESET%
+:SUMMARY
+echo.
+echo %C_OK%==================== SUMMARY =====================%C_RESET%
+echo  %C_LABEL%Mode        :%C_RESET% !MODE!
+echo  %C_LABEL%Codec       :%C_RESET% !CODEC!
+echo  %C_LABEL%Preset      :%C_RESET% !PRESET!  ^(bitrate: !BITRATE!^)
+echo  %C_LABEL%Input       :%C_RESET% %INPUT%
+echo  %C_LABEL%Output Dir  :%C_RESET% %OUTDIR%
+echo.
+echo  %C_LABEL%Generated Files:%C_RESET%
 
-if "%IS_DIR%"=="true" (
-    for %%I in ("%INPUT%\*.mp4") do (
-        echo Extracting: %%~nxI
-        ffmpeg -hide_banner -loglevel error -i "%%I" ^
-               -vn -acodec libmp3lame -b:a 128k ^
-               "%OUTDIR%\%%~nI.mp3"
-    )
+if "!MODE!"=="single" (
+    echo    %C_OK%- !OUTFILE!%C_RESET%
 ) else (
-    echo Extracting single file...
-    ffmpeg -hide_banner -loglevel error -i "%INPUT%" ^
-           -vn -acodec libmp3lame -b:a 128k ^
-           "%OUTDIR%\%~n1.mp3"
+    for %%O in (!OUTPUT_LIST:^|= ! ) do if not "%%O"=="" echo    %C_OK%- %%O%C_RESET%
 )
 
 echo.
-echo %C_GREEN%SPLIT COMPLETED.%C_RESET%
-pause
-exit /b
+echo  %C_OK%Status      : COMPLETED SUCCESSFULLY%C_RESET%
+echo %C_OK%=================================================%C_RESET%
 
+:: ============================================================================
+:: CLEAN EXIT
+:: ============================================================================
+:CLEAN_EXIT
+del "%LOCKFILE%" >nul 2>&1
+exit /b
 
 :: ============================================================================
 :: HELP
 :: ============================================================================
 :HELP
 echo.
-echo --------------------- HELP -----------------------
-echo extractMP3Adv.cmd ^<input_path^> [/mode:merge^|split] [/preset:HQ^|MED^|LOW^|SIZE] [/out:"folder"]
+echo %C_INFO%----------------------------------------------------------------------------
+echo   extractMP3Adv   ::     Advanced audio extractor for MP4 files
+echo ----------------------------------------------------------------------------%C_RESET%
 echo.
-echo Extract MP3 audio from MP4 files with merge/split modes,
-echo dynamic bitrate calculation, presets, color output,
-echo output directory option, ffmpeg checks and modern UI.
+echo   Extracts audio from MP4 files and converts it to MP3, AAC or OPUS.
+echo   Supports single files, folder split, and merge operations.
+echo   %C_OK%Long silence removal is automatically applied in SINGLE and SPLIT modes%C_RESET%
 echo.
-echo Modes:
-echo   merge   = Combine multiple MP4 files into ONE MP3
-echo   split   = Produce one MP3 per MP4
+echo %C_LABEL%:: Supported inputs%C_RESET%
+echo      - A single MP4 file
+echo      - A folder containing multiple MP4 files
 echo.
-echo Presets:
-echo   HQ    = 1.5x bitrate (max 320 kbps)
-echo   MED   = 1.0x (default)
-echo   LOW   = 0.6x bitrate
-echo   SIZE  = size‑optimized automatic calculation
+echo %C_LABEL%:: Operating modes%C_RESET%
+echo      %C_OK%SINGLE%C_RESET% :: Automatic extraction from a single file
+echo      %C_OK%SPLIT %C_RESET% :: One audio file per video
+echo      %C_OK%MERGE %C_RESET% :: All videos merged into a single audio file
 echo.
-echo Example:
-echo   extractMP3Adv.cmd "D:\clips" /mode:merge /preset:HQ /out:"D:\audio"
-echo ---------------------------------------------------
+echo %C_LABEL%:: Options%C_RESET%
+echo     %C_OK%/mode%C_RESET%   :: split             One audio per MP4
+echo     %C_OK%/mode%C_RESET%   :: merge             Merge all MP4 files
+echo.
+echo     %C_OK%/codec%C_RESET%  :: mp3               MP3 output (default)
+echo     %C_OK%/codec%C_RESET%  :: aac               AAC output (m4a)
+echo     %C_OK%/codec%C_RESET%  :: opus              OPUS output
+echo.
+echo     %C_OK%/preset%C_RESET% :: HQ^|MED^|LOW        Audio quality preset
+echo.
+echo     %C_OK%/out%C_RESET%    :: "folder"          Output directory
+echo.
+echo %C_LABEL%:: Examples%C_RESET%
+echo      %C_OK%extractMP3Adv video.mp4%C_RESET%
+echo      %C_OK%extractMP3Adv video.mp4 /preset:LOW%C_RESET%
+echo      %C_OK%extractMP3Adv D:\Videos /mode:merge /codec:opus%C_RESET%
+echo      %C_OK%extractMP3Adv D:\Videos /mode:split /out:"D:\Audio"%C_RESET%
+echo.
 exit /b
