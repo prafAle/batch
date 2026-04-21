@@ -1,103 +1,180 @@
-# 🎧 extractMP3Adv — Advanced MP4 → MP3 Audio Extractor (Batch Script)
+# 🎧 extractMP3Adv — Advanced MP4 → Audio Extractor (Windows Batch Script)
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Windows](https://img.shields.io/badge/Platform-Windows_10/11-blue)
-![FFmpeg](https://img.shields.io/badge/Requires-FFmpeg-green)
-![Status](https://img.shields.io/badge/Status-Stable-brightgreen)
+`extractMP3Adv.cmd` is an **advanced Windows batch script** designed to extract high‑quality audio from MP4 video files and convert it to **MP3, AAC, or OPUS**.
 
-`extractMP3Adv.cmd` is an **advanced Windows batch script** designed to extract MP3 audio from MP4 files, either by merging multiple files into a single MP3 or by splitting each MP4 into its own MP3 file.
+The script supports **single-file extraction**, **folder-based split**, and **merge operations**, with a strong focus on **speech‑oriented content** such as meetings, calls, interviews, and podcasts.
 
-The script includes:
-
-✅ Automatic bitrate optimization with **smart presets**  
-✅ Merge or split mode  
-✅ Support for both **single input file** and **entire folders**  
-✅ Optional **output directory**  
-✅ ANSI‑enhanced colorful UI + CMD color fallback  
-✅ Built‑in validation and FFmpeg/FFprobe detection  
-✅ Multi‑thread FFmpeg auto‑optimization  
-✅ Dynamic file size target (199 MB)  
-✅ Professional logging and error handling
-
-This tool is ideal for:
-
-- Audio merging workflows  
-- Podcast creation from video fragments  
-- Video-to-audio extraction  
-- Normalizing large MP4 groups into a single MP3 file  
-- Automated high-volume processing
+This version is an **evolution of the original tool**, preserving proven legacy features (dynamic bitrate calculation for merge operations, presets, validation) and integrating modern, speech‑optimized behavior such as automatic silence removal.
 
 ---
 
-# 📦 Features
+## ✨ Key Highlights
 
-### 🔹 **Two operation modes**
-- **Merge (default)** → combine multiple MP4 videos into one MP3  
-- **Split** → extract one MP3 per input MP4
+- Automatic mode detection (SINGLE / SPLIT / MERGE)
+- Speech‑optimized silence removal (SINGLE & SPLIT)
+- Dynamic bitrate engine for MERGE (target size ~199 MB)
+- Quality presets: HQ / MED / LOW / SIZE
+- Codec‑aware bitrate selection (MP3 / AAC / OPUS)
+- Explicit multi‑threaded encoding (`-threads 0`)
+- Built‑in FFmpeg and FFprobe validation
+- Optional output directory support
+- ANSI‑colored console UI
+- Detailed runtime summary with file size and duration
 
-### 🔹 **Smart Bitrate Engine**
-Bitrate is dynamically calculated based on:
-- total MP4 duration
-- target max size (199 MB)
-- preset multiplier (HQ / MED / LOW)
-
-### 🔹 **Presets**
-Preset Mode | Behavior | Description
-------------|----------|------------
-`HQ` | ×1.5 bitrate (max 320 kbps) | Highest quality
-`MED` | ×1.0 | Balanced (default)
-`LOW` | ×0.6 | Smaller files
-`SIZE` | Uses base algorithm | Prioritizes final size
-
-### 🔹 **Input modes**
-- Single MP4 file  
-- Folder containing multiple MP4 files
-
-### 🔹 **Output directory support**
-Optional `/out:"C:\path"` parameter.
-
-### 🔹 **Colorized output**
-- Modern ANSI escape sequences  
-- Fallback to `color` for legacy support
-
-### 🔹 **Environment validation**
-The script **checks** for:
-- `ffmpeg.exe`
-- `ffprobe.exe`
-
-If missing → stops with clear instructions.
+> **Note:** Logging is console‑only. No log files are created.
 
 ---
 
-# ✅ Requirements
+## 🎯 Ideal Use Cases
 
-| Component | Version |
-|----------|---------|
-| **Windows** | 10 or 11 |
-| **FFmpeg suite** | Any recent build (ffmpeg & ffprobe required) |
-| **Batch/Console** | ANSI-capable (Windows Terminal recommended) |
-
-Download FFmpeg:  
-➡ https://ffmpeg.org/download.html
+- Meeting and conference recordings  
+- Podcast creation from video sources  
+- Interview and spoken‑word archiving  
+- Bulk MP4 → audio extraction  
+- Size‑constrained audio merging  
 
 ---
 
-# 🚀 Installation
+## 📦 Features
 
-1. Download the script:  
-   `extractMP3Adv.cmd`
+### 🔹 Operating Modes
 
-2. (Optional) Create a custom launcher icon  
-   using the included `CreateLauncher.cmd`
+| Mode   | Description |
+|-------|-------------|
+| SINGLE | One MP4 → one audio file (auto‑selected) |
+| SPLIT  | Folder → one audio file per MP4 |
+| MERGE  | Folder → all MP4 files merged into one audio file |
 
-3. Install FFmpeg and ensure it's available in `%PATH%`.
-
-4. Run the script from any location.
+The mode is **automatically resolved** based on the input, but can be overridden with `/mode`.
 
 ---
 
-# 🧠 Usage
+### 🔹 Silence Removal (Speech‑Optimized)
 
-### **Basic syntax**
+- Enabled **by default**
+- Automatically applied in:
+  - SINGLE
+  - SPLIT
+- Not applied in:
+  - MERGE
+
+Silence trimming removes long pauses while preserving natural speech flow, making the output ideal for listening and transcription.
+
+---
+
+### 🔹 Audio Codecs
+
+| Codec | Description |
+|------|-------------|
+| mp3  | Universal compatibility (default) |
+| aac  | Better quality at lower bitrates (output `.m4a`) |
+| opus | Best efficiency for speech |
+
+---
+
+### 🔹 Presets & Bitrate Logic
+
+#### SINGLE / SPLIT (Static, Speech‑Optimized)
+
+| Preset | Behavior |
+|-------|----------|
+| LOW   | Smaller files, lower bitrate |
+| MED   | Balanced quality (default) |
+| HQ    | Higher quality |
+| SIZE  | Treated as MED |
+
+Bitrates are **codec‑aware** (e.g. OPUS uses much lower values than MP3 for similar perceived quality).
+
+---
+
+#### MERGE (Dynamic Bitrate Engine)
+
+In **MERGE mode only**, bitrate is calculated dynamically to keep the final file close to **~199 MB**, based on:
+
+- total duration of all input MP4 files (via `ffprobe`)
+- selected preset multiplier
+
+| Preset | MERGE Behavior |
+|-------|----------------|
+| LOW   | Dynamic bitrate × 0.6 |
+| MED   | Dynamic bitrate × 1.0 |
+| HQ    | Dynamic bitrate × 1.5 (capped at 320 kbps) |
+| SIZE  | Pure size‑optimized dynamic bitrate (ignores others) |
+
+This ensures predictable output size for long merged recordings.
+
+---
+
+## ✅ Requirements
+
+| Component | Requirement |
+|----------|------------|
+| Operating System | Windows 10 or Windows 11 |
+| FFmpeg | Required |
+| FFprobe | Required |
+| Console | ANSI‑capable (Windows Terminal recommended) |
+
+Download FFmpeg from:  
+https://ffmpeg.org/download.html
+
+Both `ffmpeg.exe` and `ffprobe.exe` must be available in the system `PATH`.
+
+---
+
+## 🚀 Usage
+
+### Basic Syntax
+
 ```cmd
-extractMP3Adv.cmd <input_path> [/mode:merge|split] [/preset:HQ|MED|LOW|SIZE] [/out:"folder"]
+extractMP3Adv.cmd <input_path> [/mode:merge|split] [/preset:HQ|MED|LOW|SIZE] [/codec:mp3|aac|opus] [/out:"folder"]
+`<input_path>` can be:
+- a single MP4 file
+- a folder containing MP4 files
+
+---
+
+### Examples
+
+#### Single file
+
+```cmd
+extractMP3Adv video.mp4
+extractMP3Adv video.mp4 /preset:LOW
+extractMP3Adv video.mp4 /codec:opus
+Split mode
+BATextractMP3Adv D:\Videos /mode:splitextractMP3Adv D:\Videos /mode:split /preset:HQextractMP3Adv D:\Videos /mode:split /codec:aac /out:"D:\Audio"Mostra più linee
+Merge mode (dynamic bitrate)
+BATextractMP3Adv D:\Videos /mode:mergeextractMP3Adv D:\Videos /mode:merge /preset:HQMostra più linee
+Size‑optimized merge
+BATextractMP3Adv D:\Videos /mode:merge /preset:SIZEextractMP3Adv D:\Videos /mode:merge /preset:SIZE /codec:opusMostra più linee
+
+📊 Runtime Summary
+At the end of execution, the script prints a detailed summary including:
+
+resolved mode
+selected codec and preset
+effective bitrate
+output directory
+generated files with:
+
+final file size
+audio duration
+
+
+
+Example:
+[53,5MB 01:04:00] 20260421_152110_MeetingAudio.mp3
+
+
+🧠 Design Notes
+
+Uses explicit multi‑threaded encoding (-threads 0)
+Dynamic merge bitrate uses integer‑safe arithmetic
+ffprobe is required for duration analysis
+Long silence removal is disabled in MERGE mode to avoid timeline distortion
+No background services or persistent temporary files are used
+Console output is the only logging mechanism
+
+
+📄 License
+MIT License — free for personal and commercial use.
